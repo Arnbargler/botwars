@@ -7,16 +7,17 @@ export const CLASSES: Record<ClassId, Specs> = {
 };
 export interface Behaviour { aggression:number; teamwork:number; caution:number; distance:number; target:number; mobility:number; }
 export const DEFAULT_BEHAVIOUR:Behaviour = { aggression:70, teamwork:50, caution:45, distance:50, target:40, mobility:60 };
+export interface RosterEntry { kind:ClassId; behaviour:Behaviour; }
 export interface Bot { id:number; team:Team; kind:ClassId; x:number; y:number; health:number; cooldown:number; angle:number; behaviour:Behaviour; targetId:number|null; wanderX:number; wanderY:number; wanderStep:number; }
 export interface Shot { from:number; to:number; x:number; y:number; damage:number; }
 export interface Match { bots:Bot[]; shots:Shot[]; winner:Team|null; finished:boolean; elapsed:number; }
 export const ARENA={ width:960,height:600,padding:32 };
-export function createMatch(team0:ClassId[],team1:ClassId[],behaviour:Behaviour):Match {
+export function createMatch(team0:RosterEntry[],team1:RosterEntry[]):Match {
   const bots:Bot[]=[];
   for (const [team, roster] of [[0,team0],[1,team1]] as const) {
-    roster.forEach((kind,i)=>{
-      const specs=CLASSES[kind];
-      bots.push({id:bots.length,team,kind,x:team===0?85:875,y:110+i*100,health:specs.maxHealth,cooldown:0,angle:team===0?0:Math.PI,behaviour:{...behaviour},targetId:null,wanderX:ARENA.width/2,wanderY:ARENA.height/2,wanderStep:0});
+    roster.forEach((entry,i)=>{
+      const specs=CLASSES[entry.kind];
+      bots.push({id:bots.length,team,kind:entry.kind,x:team===0?85:875,y:110+i*100,health:specs.maxHealth,cooldown:0,angle:team===0?0:Math.PI,behaviour:{...entry.behaviour},targetId:null,wanderX:ARENA.width/2,wanderY:ARENA.height/2,wanderStep:0});
     });
   }
   return {bots,shots:[],winner:null,finished:false,elapsed:0};
