@@ -4,12 +4,18 @@ import './style.css';
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
 const budget=700;
-let roster:ClassId[]=['scout','scout','goliath'];
-let behaviour:Behaviour={...DEFAULT_BEHAVIOUR};
+interface ConfiguredBot { id:number; kind:ClassId; behaviour:Behaviour; }
+let nextRosterId=4;
+let roster:ConfiguredBot[]=[
+  {id:1,kind:'scout',behaviour:{...DEFAULT_BEHAVIOUR}},
+  {id:2,kind:'scout',behaviour:{...DEFAULT_BEHAVIOUR}},
+  {id:3,kind:'goliath',behaviour:{...DEFAULT_BEHAVIOUR}}
+];
+let selectedId:number|null=1;
 let game:Phaser.Game|null=null;
 let currentMatch:Match|null=null;
 
-function rosterCost():number {return roster.reduce((sum,id)=>sum+CLASSES[id].cost,0);}
+function rosterCost():number {return roster.reduce((sum,bot)=>sum+CLASSES[bot.kind].cost,0);}
 const sliderLabels: {key:keyof Behaviour;title:string;low:string;high:string}[]=[
   {key:'aggression',title:'Aggression',low:'Timid',high:'Aggressive'},
   {key:'teamwork',title:'Teamwork',low:'Lone wolf',high:'Helps teammates'},
@@ -20,25 +26,70 @@ const sliderLabels: {key:keyof Behaviour;title:string;low:string;high:string}[]=
 ];
 function setup():void {
   game?.destroy(true);game=null;currentMatch=null;
-  app.innerHTML=`<header><h1>BOTWARS <span>v0.1</span></h1><p>BUILD YOUR TEAM · CONFIGURE BEHAVIOUR · WATCH THEM FIGHT</p></header>
-  <section class="panel"><h2>Team Blue · ${rosterCost()} / ${budget} credits</h2>
+  app.innerHTML=`<header><h1>BOTWARS <span>v0.3</span></h1><p>BUILD YOUR TEAM · CONFIGURE EACH BOT · WATCH THEM FIGHT</p></header>
+  <section class="panel"><h2 id="budgetHeading"></h2>
   <div id="roster"></div><div class="actions"><button id="addScout">+ Scout (100)</button><button id="addGoliath">+ Goliath (300)</button></div></section>
-  <section class="panel"><h2>Team behaviour (individual settings come next)</h2><div id="sliders"></div></section>
-  <section class="panel"><h2>Opponent: 2 Scouts + 1 Goliath</h2><p>Test match: simple arena, fixed-step simulation, independent radar. First team eliminated loses.</p><button id="ready" class="primary">READY — START BATTLE</button></section>`;
-  const update=()=>{
-    document.querySelector('#roster')!.innerHTML=roster.map((kind,i)=>`<div class="bot"><strong>${kind.toUpperCase()} #${i+1}</strong><span>HP ${CLASSES[kind].maxHealth} · speed ${CLASSES[kind].speed} · radar ${CLASSES[kind].radarRange} · weapon range ${CLASSES[kind].attackRange}</span><button data-remove="${i}">Remove</button></div>`).join('');
-    document.querySelectorAll<HTMLButtonElement>('[data-remove]').forEach(b=>b.onclick=()=>{roster.splice(Number(b.dataset.remove),1);setup();});
-    document.querySelector<HTMLHeadingElement>('.panel h2')!.textContent=`Team Blue · ${rosterCost()} / ${budget} credits`;
-    (document.querySelector<HTMLButtonElement>('#addScout')!).disabled=rosterCost()+100>budget;
-    (document.querySelector<HTMLButtonElement>('#addGoliath')!).disabled=rosterCost()+300>budget;
-    (document.querySelector<HTMLButtonElement>('#ready')!).disabled=roster.length===0;
-  };
-  document.querySelector('#sliders')!.innerHTML=sliderLabels.map(s=>`<label class="slider"><span>${s.title}</span><div><small>${s.low}</small><input type="range" min="0" max="100" value="${behaviour[s.key]}" data-setting="${s.key}"/><small>${s.high}</small><output>${behaviour[s.key]}</output></div></label>`).join('');
-  document.querySelectorAll<HTMLInputElement>('[data-setting]').forEach(input=>input.oninput=()=>{const key=input.dataset.setting as keyof Behaviour;behaviour[key]=Number(input.value);input.nextElementSibling!.textContent=input.value;});
-  document.querySelector<HTMLButtonElement>('#addScout')!.onclick=()=>{roster.push('scout');update();};
-  document.querySelector<HTMLButtonElement>('#addGoliath')!.onclick=()=>{roster.push('goliath');update();};
+  <section class="panel"><h2 id="selectedHeading"></h2><div id="stats"></div><div id="sliders"></div></section>
+  <section class="panel"><h2>Opponent: 2 Scouts + 1 Goliath</h2><p>Every robot has its own personality. Teamwork will influence targeting in a future update; radar remains strictly individual.</p><button id="ready" class="primary">READY — START BATTLE</button></section>`;
+  function renderSliders():void {
+    const selected=roster.find(b=>b.id===selectedId);
+    const heading=document.querySelector<HTMLElement>('#selectedHeading')!;
+    const stats=document.querySelector<HTMLElement>('#stats')!;
+    const holder=document.querySelector<HTMLElement>('#sliders')!;
+    if(!selected){
+      heading.textContent='Select a robot';
+      stats.textContent='Add or select a robot to configure it.';
+      holder.innerHTML='';
+      return;
+    }
+    const ordinal=roster.filter(b=>b.kind===selected.kind&&b.id<=selected.id).length;
+    heading.textContent=`${selected.kind.toUpperCase()} #${ordinal} — Individual behaviour`;
+    const spec=CLASSES[selected.kind];
+    stats.textContent=`Immutable: HP ${spec.maxHealth} · speed ${spec.speed} · radar ${spec.radarRange} · attack range ${spec.attackRange}`;
+    holder.innerHTML=sliderLabels.map(label=>`<label class="slider"><span>${label.title}</span><div><small>${label.low}</small><input type="range" min="0" max="100" value="${selected.behaviour[label.key]}" data-setting="${label.key}"/><small>${label.high}</small><output>${selected.behaviour[label.key]}</output></div></label>`).join('');
+    holder.querySelectorAll<HTMLInputElement>('[data-setting]').forEach(input=>{
+      input.oninput=()=>{
+        const key=input.dataset.setting as keyof Behaviour;
+        selected.behaviour[key]=Number(input.value);
+        input.nextElementSibling!.textContent=input.value;
+      };
+    });
+  }
+  function renderRoster():void {
+    document.querySelector<HTMLElement>('#budgetHeading')!.textContent=`Team Blue · ${rosterCost()} / ${budget} credits`;
+    document.querySelector<HTMLElement>('#roster')!.innerHTML=roster.map(bot=>{
+      const spec=CLASSES[bot.kind];
+      return `<div class="bot ${bot.id===selectedId?'selected':''}"><button class="pick-bot" data-select="${bot.id}" aria-pressed="${bot.id===selectedId}"><strong>${bot.kind.toUpperCase()}</strong><span>HP ${spec.maxHealth} · speed ${spec.speed} · radar ${spec.radarRange} · weapon ${spec.attackRange}</span></button><button data-remove="${bot.id}" aria-label="Remove bot">Remove</button></div>`;
+    }).join('');
+    document.querySelectorAll<HTMLButtonElement>('[data-select]').forEach(button=>button.onclick=()=>{
+      selectedId=Number(button.dataset.select);
+      renderRoster();
+      renderSliders();
+    });
+    document.querySelectorAll<HTMLButtonElement>('[data-remove]').forEach(button=>button.onclick=()=>{
+      const id=Number(button.dataset.remove);
+      roster=roster.filter(bot=>bot.id!==id);
+      if(selectedId===id) selectedId=roster[0]?.id??null;
+      renderRoster();
+      renderSliders();
+    });
+    document.querySelector<HTMLButtonElement>('#addScout')!.disabled=rosterCost()+CLASSES.scout.cost>budget;
+    document.querySelector<HTMLButtonElement>('#addGoliath')!.disabled=rosterCost()+CLASSES.goliath.cost>budget;
+    document.querySelector<HTMLButtonElement>('#ready')!.disabled=roster.length===0;
+  }
+  function addBot(kind:ClassId):void {
+    if(rosterCost()+CLASSES[kind].cost>budget)return;
+    const bot={id:nextRosterId++,kind,behaviour:{...DEFAULT_BEHAVIOUR}};
+    roster.push(bot);
+    selectedId=bot.id;
+    renderRoster();
+    renderSliders();
+  }
+  document.querySelector<HTMLButtonElement>('#addScout')!.onclick=()=>addBot('scout');
+  document.querySelector<HTMLButtonElement>('#addGoliath')!.onclick=()=>addBot('goliath');
   document.querySelector<HTMLButtonElement>('#ready')!.onclick=start;
-  update();
+  renderRoster();
+  renderSliders();
 }
 class BattleScene extends Phaser.Scene {
   private match!:Match;
@@ -79,7 +130,10 @@ class BattleScene extends Phaser.Scene {
   }
 }
 function start():void{
-  currentMatch=createMatch(roster,['scout','scout','goliath'],behaviour);
+  currentMatch=createMatch(
+    roster.map(bot=>({kind:bot.kind,behaviour:{...bot.behaviour}})),
+    (['scout','scout','goliath'] as ClassId[]).map(kind=>({kind,behaviour:{...DEFAULT_BEHAVIOUR}}))
+  );
   app.innerHTML='<header><h1>BOTWARS <span>LIVE MATCH</span></h1></header><div id="game"></div><div class="actions"><button id="again">BACK TO SETUP</button></div><p class="hint">Thin circles indicate each bot\'s radar range. Radar is local; no ordinary bot can share contacts. Gold lines indicate shots.</p>';
   document.querySelector<HTMLButtonElement>('#again')!.onclick=setup;
   game=new Phaser.Game({type:Phaser.AUTO,width:ARENA.width,height:ARENA.height,parent:'game',backgroundColor:'#101b2b',scene:[BattleScene],scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_HORIZONTALLY}});
