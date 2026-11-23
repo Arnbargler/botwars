@@ -24,72 +24,123 @@ const sliderLabels: {key:keyof Behaviour;title:string;low:string;high:string}[]=
   {key:'target',title:'Target preference',low:'Weakest',high:'Strongest'},
   {key:'mobility',title:'Mobility',low:'Hold position',high:'Keep moving'}
 ];
+const CLASS_DETAILS:Record<ClassId,{description:string;glyph:string}> = {
+  scout:{description:'Fast reconnaissance and harassment',glyph:'◆'},
+  goliath:{description:'Heavy frontline combat unit',glyph:'⬡'}
+};
+function botLabel(bot:ConfiguredBot):string {
+  const ordinal=roster.filter(b=>b.kind===bot.kind&&b.id<=bot.id).length;
+  return `${bot.kind==='scout'?'Scout':'Goliath'} #${ordinal}`;
+}
 function setup():void {
   game?.destroy(true);game=null;currentMatch=null;
-  app.innerHTML=`<header><h1>BOTWARS <span>v0.3</span></h1><p>BUILD YOUR TEAM · CONFIGURE EACH BOT · WATCH THEM FIGHT</p></header>
-  <section class="panel"><h2 id="budgetHeading"></h2>
-  <div id="roster"></div><div class="actions"><button id="addScout">+ Scout (100)</button><button id="addGoliath">+ Goliath (300)</button></div></section>
-  <section class="panel"><h2 id="selectedHeading"></h2><div id="stats"></div><div id="sliders"></div></section>
-  <section class="panel"><h2>Opponent: 2 Scouts + 1 Goliath</h2><p>Every robot has its own personality. Teamwork will influence targeting in a future update; radar remains strictly individual.</p><button id="ready" class="primary">READY — START BATTLE</button></section>`;
-  function renderSliders():void {
-    const selected=roster.find(b=>b.id===selectedId);
-    const heading=document.querySelector<HTMLElement>('#selectedHeading')!;
-    const stats=document.querySelector<HTMLElement>('#stats')!;
-    const holder=document.querySelector<HTMLElement>('#sliders')!;
-    if(!selected){
-      heading.textContent='Select a robot';
-      stats.textContent='Add or select a robot to configure it.';
-      holder.innerHTML='';
-      return;
-    }
-    const ordinal=roster.filter(b=>b.kind===selected.kind&&b.id<=selected.id).length;
-    heading.textContent=`${selected.kind.toUpperCase()} #${ordinal} — Individual behaviour`;
-    const spec=CLASSES[selected.kind];
-    stats.textContent=`Immutable: HP ${spec.maxHealth} · speed ${spec.speed} · radar ${spec.radarRange} · attack range ${spec.attackRange}`;
-    holder.innerHTML=sliderLabels.map(label=>`<label class="slider"><span>${label.title}</span><div><small>${label.low}</small><input type="range" min="0" max="100" value="${selected.behaviour[label.key]}" data-setting="${label.key}"/><small>${label.high}</small><output>${selected.behaviour[label.key]}</output></div></label>`).join('');
-    holder.querySelectorAll<HTMLInputElement>('[data-setting]').forEach(input=>{
-      input.oninput=()=>{
-        const key=input.dataset.setting as keyof Behaviour;
-        selected.behaviour[key]=Number(input.value);
-        input.parentElement!.querySelector('output')!.textContent=input.value;
-      };
-    });
+  app.innerHTML=`
+    <header class="setup-header">
+      <div class="brand"><span class="brand-icon">⚙</span><div><h1>BOTWARS</h1><p>TACTICAL ROBOT ARENA</p></div></div>
+      <div class="steps" aria-label="Match setup steps"><span class="step done"><b>1</b> Build Roster ✓</span><span class="step active"><b>2</b> Configure Bots</span><span class="step"><b>3</b> Ready</span></div>
+      <div class="version">PRE-ALPHA · v0.4</div>
+    </header>
+    <main class="setup-grid">
+      <aside class="ui-panel catalogue">
+        <div class="panel-head"><h2>Available Bots</h2><span>CLASSES</span></div>
+        <div class="panel-body"><p class="credits" id="credits"></p><div class="catalogue-list" id="catalogue"></div>
+          <p class="sidebar-note">Each class has fixed physical capabilities. Individual behaviour is configured in your roster.</p>
+        </div>
+      </aside>
+      <section class="ui-panel roster-panel">
+        <div class="panel-head"><h2>Your Roster <small id="rosterCount"></small></h2><strong id="budgetHeading"></strong></div>
+        <div class="roster-cards" id="roster"></div>
+        <div class="roster-footer"><span>Choose a bot to edit its six behaviour sliders.</span><button id="clearRoster" class="subtle">Clear Roster</button></div>
+      </section>
+      <aside class="right-stack">
+        <section class="ui-panel preview-panel">
+          <div class="panel-head"><h2>Arena Preview</h2><span>01 / BASIC</span></div>
+          <div class="arena-wrap" aria-label="Basic empty arena preview with boundary walls">
+            <div class="arena-preview">
+              <div class="arena-wall top"></div><div class="arena-wall bottom"></div><div class="arena-wall left"></div><div class="arena-wall right"></div>
+              <span class="arena-bot blue a"></span><span class="arena-bot blue b"></span><span class="arena-bot blue c"></span>
+              <span class="arena-bot red a"></span><span class="arena-bot red b"></span><span class="arena-bot red c"></span>
+            </div>
+          </div>
+          <div class="preview-caption">Arena: <strong>Basic Arena</strong><small>Boundary walls only</small></div>
+        </section>
+        <section class="ui-panel match-settings">
+          <div class="panel-head"><h2>Match Settings</h2></div>
+          <div class="setting-row"><span>Mode</span><strong>Team Battle · 2 teams</strong></div>
+          <div class="setting-row"><span>Opponent</span><strong>2 Scouts + 1 Goliath</strong></div>
+          <div class="setting-row"><span>Rounds</span><strong>Best of 1</strong></div>
+          <p>Additional modes and arenas are planned. Settings shown here are fixed for this prototype.</p>
+        </section>
+        <button id="ready" class="ready-button"><span class="play-icon">▶</span><span>READY<small>Lock roster and start the battle</small></span></button>
+      </aside>
+    </main>`;
+
+  function renderCatalogue():void {
+    document.querySelector<HTMLElement>('#credits')!.textContent=`Remaining credits: ${budget-rosterCost()} / ${budget}`;
+    document.querySelector<HTMLElement>('#catalogue')!.innerHTML=(Object.keys(CLASSES) as ClassId[]).map(kind=>{
+      const spec=CLASSES[kind],detail=CLASS_DETAILS[kind];
+      const disabled=rosterCost()+spec.cost>budget;
+      return `<div class="catalogue-card ${kind}"><div class="bot-emblem ${kind}">${detail.glyph}</div>
+        <div class="catalogue-info"><strong>${kind==='scout'?'Scout':'Goliath'}</strong><p>${detail.description}</p><span>${spec.cost} credits</span></div>
+        <button data-add="${kind}" ${disabled?'disabled':''} aria-label="Add ${kind} to roster">+</button></div>`;
+    }).join('');
+    document.querySelectorAll<HTMLButtonElement>('[data-add]').forEach(button=>button.onclick=()=>addBot(button.dataset.add as ClassId));
+  }
+  function sliderMarkup(bot:ConfiguredBot):string {
+    return sliderLabels.map(label=>`<label class="slider"><span class="slider-title">${label.title}</span>
+      <div class="slider-controls"><small>${label.low}</small><input aria-label="${botLabel(bot)} ${label.title}" type="range" min="0" max="100" value="${bot.behaviour[label.key]}" data-setting="${label.key}" data-id="${bot.id}"/><small>${label.high}</small><output>${bot.behaviour[label.key]}</output></div></label>`).join('');
   }
   function renderRoster():void {
-    document.querySelector<HTMLElement>('#budgetHeading')!.textContent=`Team Blue · ${rosterCost()} / ${budget} credits`;
-    document.querySelector<HTMLElement>('#roster')!.innerHTML=roster.map(bot=>{
-      const spec=CLASSES[bot.kind];
-      return `<div class="bot ${bot.id===selectedId?'selected':''}"><button class="pick-bot" data-select="${bot.id}" aria-pressed="${bot.id===selectedId}"><strong>${bot.kind.toUpperCase()}</strong><span>HP ${spec.maxHealth} · speed ${spec.speed} · radar ${spec.radarRange} · weapon ${spec.attackRange}</span></button><button data-remove="${bot.id}" aria-label="Remove bot">Remove</button></div>`;
-    }).join('');
-    document.querySelectorAll<HTMLButtonElement>('[data-select]').forEach(button=>button.onclick=()=>{
+    document.querySelector<HTMLElement>('#rosterCount')!.textContent=`(${roster.length} bots)`;
+    document.querySelector<HTMLElement>('#budgetHeading')!.textContent=`Total Cost: ${rosterCost()} / ${budget}`;
+    const list=document.querySelector<HTMLElement>('#roster')!;
+    list.innerHTML=roster.length?roster.map(bot=>{
+      const spec=CLASSES[bot.kind],detail=CLASS_DETAILS[bot.kind],active=bot.id===selectedId;
+      return `<article class="roster-card ${active?'selected':''}">
+        <div class="roster-card-head">
+          <button class="roster-select" data-select="${bot.id}" aria-expanded="${active}">
+            <span class="bot-emblem ${bot.kind}">${detail.glyph}</span>
+            <span class="roster-card-title"><strong>${botLabel(bot)}</strong><small>${spec.cost} credits · ${active?'Editing behaviour':'Select to configure'}</small></span>
+            <span class="expand-symbol">${active?'▾':'▸'}</span>
+          </button>
+          <button class="remove-bot subtle" data-remove="${bot.id}" aria-label="Remove ${botLabel(bot)}">✕</button>
+        </div>
+        <div class="roster-stats"><span>♥ HP <b>${spec.maxHealth}</b></span><span>➤ Speed <b>${spec.speed}</b></span><span>◎ Radar <b>${spec.radarRange}</b></span><span>⌖ Weapon <b>${spec.attackRange}</b></span><span>✦ Damage <b>${spec.damage}</b></span><span>◷ Shots/s <b>${spec.shotsPerSecond}</b></span></div>
+        ${active?`<div class="behaviour-grid">${sliderMarkup(bot)}</div>`:'<div class="collapsed-hint">Behaviour saved · click to edit</div>'}
+      </article>`;
+    }).join(''):'<div class="empty-roster">Your roster is empty.<br>Add a bot from the left panel to begin.</div>';
+    list.querySelectorAll<HTMLButtonElement>('[data-select]').forEach(button=>button.onclick=()=>{
       selectedId=Number(button.dataset.select);
       renderRoster();
-      renderSliders();
     });
-    document.querySelectorAll<HTMLButtonElement>('[data-remove]').forEach(button=>button.onclick=()=>{
+    list.querySelectorAll<HTMLButtonElement>('[data-remove]').forEach(button=>button.onclick=()=>{
       const id=Number(button.dataset.remove);
       roster=roster.filter(bot=>bot.id!==id);
       if(selectedId===id) selectedId=roster[0]?.id??null;
-      renderRoster();
-      renderSliders();
+      renderAll();
     });
-    document.querySelector<HTMLButtonElement>('#addScout')!.disabled=rosterCost()+CLASSES.scout.cost>budget;
-    document.querySelector<HTMLButtonElement>('#addGoliath')!.disabled=rosterCost()+CLASSES.goliath.cost>budget;
+    list.querySelectorAll<HTMLInputElement>('[data-setting]').forEach(input=>{
+      input.oninput=()=>{
+        const bot=roster.find(b=>b.id===Number(input.dataset.id));
+        if(!bot)return;
+        bot.behaviour[input.dataset.setting as keyof Behaviour]=Number(input.value);
+        input.parentElement!.querySelector('output')!.textContent=input.value;
+      };
+    });
     document.querySelector<HTMLButtonElement>('#ready')!.disabled=roster.length===0;
+    document.querySelector<HTMLButtonElement>('#clearRoster')!.disabled=roster.length===0;
   }
+  function renderAll():void {renderCatalogue();renderRoster();}
   function addBot(kind:ClassId):void {
     if(rosterCost()+CLASSES[kind].cost>budget)return;
     const bot={id:nextRosterId++,kind,behaviour:{...DEFAULT_BEHAVIOUR}};
-    roster.push(bot);
-    selectedId=bot.id;
-    renderRoster();
-    renderSliders();
+    roster.push(bot);selectedId=bot.id;renderAll();
   }
-  document.querySelector<HTMLButtonElement>('#addScout')!.onclick=()=>addBot('scout');
-  document.querySelector<HTMLButtonElement>('#addGoliath')!.onclick=()=>addBot('goliath');
+  document.querySelector<HTMLButtonElement>('#clearRoster')!.onclick=()=>{
+    roster=[];selectedId=null;renderAll();
+  };
   document.querySelector<HTMLButtonElement>('#ready')!.onclick=start;
-  renderRoster();
-  renderSliders();
+  renderAll();
 }
 class BattleScene extends Phaser.Scene {
   private match!:Match;
