@@ -38,7 +38,7 @@ function setup():void {
     <header class="setup-header">
       <div class="brand"><span class="brand-icon">⚙</span><div><h1>BOTWARS</h1><p>TACTICAL ROBOT ARENA</p></div></div>
       <div class="steps" aria-label="Match setup steps"><span class="step done"><b>1</b> Build Roster ✓</span><span class="step active"><b>2</b> Configure Bots</span><span class="step"><b>3</b> Ready</span></div>
-      <div class="version">PRE-ALPHA · v0.4</div>
+      <div class="version">PRE-ALPHA · v0.5</div>
     </header>
     <main class="setup-grid">
       <aside class="ui-panel catalogue">
@@ -142,11 +142,63 @@ function setup():void {
   document.querySelector<HTMLButtonElement>('#ready')!.onclick=start;
   renderAll();
 }
+let battleSelectedId:number|null=null;
+const displayName=(bot:{kind:ClassId;id:number;team:number})=>
+  `${bot.kind==='scout'?'Scout':'Goliath'} #${bot.id+1}`;
+function updateInspector(match:Match):void {
+  const container=document.querySelector<HTMLElement>('#inspector');
+  if(!container)return;
+  const bot=match.bots.find(b=>b.id===battleSelectedId);
+  if(!bot){
+    container.innerHTML='<h2>Bot Inspector</h2><p class="hint">Click any robot in the arena to inspect its decisions, health, radar contacts and individual settings.</p>';
+    return;
+  }
+  const spec=CLASSES[bot.kind];
+  const target=match.bots.find(b=>b.id===bot.targetId);
+  const entries=[
+    ['Team',bot.team===0?'Blue':'Red'],
+    ['Status',bot.health>0?bot.action:'Destroyed'],
+    ['Target',target?`${displayName(target)} (ID ${target.id+1})`:'None'],
+    ['Radar contacts',String(bot.visibleEnemies)],
+    ['Radar range',String(spec.radarRange)],
+    ['Attack range',String(spec.attackRange)],
+    ['Weapon cooldown',bot.cooldown.toFixed(2)+' s'],
+    ['Shots / hits',`${bot.shotsFired} / ${bot.hits}`],
+    ['Damage dealt',String(bot.damageDealt)],
+    ['Kills',String(bot.kills)]
+  ];
+  container.innerHTML=`<h2>${displayName(bot)} <small>· ${bot.team===0?'BLUE':'RED'} TEAM</small></h2>
+    <div class="inspect-health"><div style="width:${bot.health/spec.maxHealth*100}%"></div></div>
+    <p class="inspect-hp">Health: ${bot.health} / ${spec.maxHealth}</p>
+    <div class="inspect-rows">${entries.map(([k,v])=>`<div><span>${k}</span><strong>${v}</strong></div>`).join('')}</div>
+    <h3>Configured behaviour</h3>
+    <div class="inspect-rows">${sliderLabels.map(x=>`<div><span>${x.title}</span><strong>${bot.behaviour[x.key]}%</strong></div>`).join('')}</div>`;
+}
+function displayResults(match:Match):void {
+  const holder=document.querySelector<HTMLElement>('#results');
+  if(!holder || !match.finished || holder.dataset.shown==='yes')return;
+  holder.dataset.shown='yes';
+  const rows=([0,1] as const).map(team=>{
+    const bots=match.bots.filter(bot=>bot.team===team);
+    return {team:team===0?'Blue':'Red',deployed:bots.length,survived:bots.filter(b=>b.health>0).length,
+      shots:bots.reduce((n,b)=>n+b.shotsFired,0),
+      hits:bots.reduce((n,b)=>n+b.hits,0),
+      damage:bots.reduce((n,b)=>n+b.damageDealt,0),
+      kills:bots.reduce((n,b)=>n+b.kills,0)};
+  });
+  holder.innerHTML=`<h2>Battle Results — ${match.winner===null?'Draw':match.winner===0?'Blue victory':'Red victory'}</h2>
+    <p>Match duration: ${match.elapsed.toFixed(1)} seconds</p>
+    <table><thead><tr><th>Statistic</th><th>Blue</th><th>Red</th></tr></thead><tbody>
+    ${([['Robots deployed','deployed'],['Surviving','survived'],['Shots fired','shots'],['Hits','hits'],['Damage inflicted','damage'],['Kills','kills']] as const)
+      .map(([label,key])=>`<tr><th>${label}</th><td>${rows[0][key]}</td><td>${rows[1][key]}</td></tr>`).join('')}
+    </tbody></table><p class="hint">Weapons are currently instant-hit; every fired shot counts as a hit. Accuracy will become meaningful when we add projectile misses.</p>`;
+}
 class BattleScene extends Phaser.Scene {
   private match!:Match;
   private board!:Phaser.GameObjects.Graphics;
   private accumulator=0;
   private result!:Phaser.GameObjects.Text;
+  private inspectorElapsed=0;
   constructor(){super('battle');}
   create(){
     this.match=currentMatch!;
@@ -154,30 +206,52 @@ class BattleScene extends Phaser.Scene {
     this.board=this.add.graphics();
     this.add.text(24,12,'BOTWARS · BLUE vs RED', {fontFamily:'monospace',fontSize:'19px',color:'#d9edff'});
     this.result=this.add.text(480,300,'',{fontFamily:'monospace',fontSize:'32px',color:'#ffffff',align:'center'}).setOrigin(.5).setDepth(5);
+    this.input.on('pointerdown',(pointer:Phaser.Input.Pointer)=>{
+      let nearest:typeof this.match.bots[number]|undefined;
+      let best=Number.POSITIVE_INFINITY;
+      for(const bot of this.match.bots){
+        const distance=Math.hypot(pointer.worldX-bot.x,pointer.worldY-bot.y);
+        if(distance<=Math.max(20,CLASSES[bot.kind].radius+7)&&distance<best){
+          nearest=bot;best=distance;
+        }
+      }
+      if(nearest){battleSelectedId=nearest.id;updateInspector(this.match);}
+    });
+    updateInspector(this.match);
   }
   update(_time:number,deltaMs:number){
     if(!this.match.finished){
       this.accumulator+=Math.min(deltaMs,100)/1000;
       while(this.accumulator>=1/60){step(this.match,1/60);this.accumulator-=1/60;}
     }
+    this.inspectorElapsed+=deltaMs;
+    if(this.inspectorElapsed>=200){updateInspector(this.match);this.inspectorElapsed=0;}
     const g=this.board;g.clear();
     g.lineStyle(4,0x637c9a);g.strokeRect(32,32,896,536);
-    for(const b of this.match.bots){
-      if(b.health<=0)continue;
-      const s=CLASSES[b.kind],color=b.team===0?0x42c6ee:0xff657e;
-      g.lineStyle(1,b.team===0?0x347493:0x8c4052,.20);
-      g.strokeCircle(b.x,b.y,s.radarRange);
-      g.fillStyle(color);g.fillCircle(b.x,b.y,s.radius);
+    for(const bot of this.match.bots){
+      if(bot.health<=0)continue;
+      const spec=CLASSES[bot.kind],color=bot.team===0?0x42c6ee:0xff657e;
+      const selected=bot.id===battleSelectedId;
+      g.lineStyle(selected?2:1,selected?0x9ff4ff:bot.team===0?0x347493:0x8c4052,selected?.9:.15);
+      g.strokeCircle(bot.x,bot.y,spec.radarRange);
+      if(selected){
+        g.lineStyle(2,0xffe69a,.85);g.strokeCircle(bot.x,bot.y,spec.attackRange);
+        g.lineStyle(2,0xffffff);g.strokeCircle(bot.x,bot.y,spec.radius+5);
+      }
+      g.fillStyle(color);g.fillCircle(bot.x,bot.y,spec.radius);
       g.lineStyle(3,0xffffff,.85);
-      g.lineBetween(b.x,b.y,b.x+Math.cos(b.angle)*s.radius*1.5,b.y+Math.sin(b.angle)*s.radius*1.5);
-      g.fillStyle(0x344055);g.fillRect(b.x-17,b.y-s.radius-11,34,4);
-      g.fillStyle(b.team===0?0x57eac5:0xffbb76);g.fillRect(b.x-17,b.y-s.radius-11,34*b.health/s.maxHealth,4);
+      g.lineBetween(bot.x,bot.y,bot.x+Math.cos(bot.angle)*spec.radius*1.5,bot.y+Math.sin(bot.angle)*spec.radius*1.5);
+      g.fillStyle(0x344055);g.fillRect(bot.x-17,bot.y-spec.radius-11,34,4);
+      g.fillStyle(bot.team===0?0x57eac5:0xffbb76);g.fillRect(bot.x-17,bot.y-spec.radius-11,34*bot.health/spec.maxHealth,4);
     }
     for(const shot of this.match.shots){
-      const from=this.match.bots.find(b=>b.id===shot.from);
+      const from=this.match.bots.find(bot=>bot.id===shot.from);
       if(from){g.lineStyle(2,0xffe6a0,.8);g.lineBetween(from.x,from.y,shot.x,shot.y);}
     }
-    if(this.match.finished) this.result.setText(this.match.winner===null?'DRAW':this.match.winner===0?'BLUE WINS':'RED WINS');
+    if(this.match.finished){
+      this.result.setText(this.match.winner===null?'DRAW':this.match.winner===0?'BLUE WINS':'RED WINS');
+      displayResults(this.match);
+    }
   }
 }
 function start():void{
@@ -185,7 +259,12 @@ function start():void{
     roster.map(bot=>({kind:bot.kind,behaviour:{...bot.behaviour}})),
     (['scout','scout','goliath'] as ClassId[]).map(kind=>({kind,behaviour:{...DEFAULT_BEHAVIOUR}}))
   );
-  app.innerHTML='<header><h1>BOTWARS <span>LIVE MATCH</span></h1></header><div id="game"></div><div class="actions"><button id="again">BACK TO SETUP</button></div><p class="hint">Thin circles indicate each bot\'s radar range. Radar is local; no ordinary bot can share contacts. Gold lines indicate shots.</p>';
+  battleSelectedId=null;
+  app.innerHTML=`<header class="battle-header"><h1>BOTWARS <span>LIVE MATCH</span></h1></header>
+    <div class="battle-layout"><div id="game"></div><aside id="inspector" class="ui-panel inspector"></aside></div>
+    <div class="actions"><button id="again">BACK TO SETUP</button></div>
+    <p class="hint">Click a robot to inspect it. Cyan circle = selected robot's radar; gold circle = its weapon range. Only the Spy will eventually share radar contacts.</p>
+    <section id="results" class="ui-panel results-panel"></section>`;
   document.querySelector<HTMLButtonElement>('#again')!.onclick=setup;
   game=new Phaser.Game({type:Phaser.AUTO,width:ARENA.width,height:ARENA.height,parent:'game',backgroundColor:'#101b2b',scene:[BattleScene],scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_HORIZONTALLY}});
 }
