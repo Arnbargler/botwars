@@ -7,7 +7,7 @@ export const CLASSES: Record<ClassId, Specs> = {
 };
 export interface Behaviour { aggression:number; teamwork:number; caution:number; distance:number; target:number; mobility:number; }
 export const DEFAULT_BEHAVIOUR:Behaviour = { aggression:70, teamwork:50, caution:45, distance:50, target:40, mobility:60 };
-export interface Bot { id:number; team:Team; kind:ClassId; x:number; y:number; health:number; cooldown:number; angle:number; behaviour:Behaviour; targetId:number|null; }
+export interface Bot { id:number; team:Team; kind:ClassId; x:number; y:number; health:number; cooldown:number; angle:number; behaviour:Behaviour; targetId:number|null; wanderX:number; wanderY:number; wanderStep:number; }
 export interface Shot { from:number; to:number; x:number; y:number; damage:number; }
 export interface Match { bots:Bot[]; shots:Shot[]; winner:Team|null; finished:boolean; elapsed:number; }
 export const ARENA={ width:960,height:600,padding:32 };
@@ -16,7 +16,7 @@ export function createMatch(team0:ClassId[],team1:ClassId[],behaviour:Behaviour)
   for (const [team, roster] of [[0,team0],[1,team1]] as const) {
     roster.forEach((kind,i)=>{
       const specs=CLASSES[kind];
-      bots.push({id:bots.length,team,kind,x:team===0?85:875,y:110+i*100,health:specs.maxHealth,cooldown:0,angle:team===0?0:Math.PI,behaviour:{...behaviour},targetId:null});
+      bots.push({id:bots.length,team,kind,x:team===0?85:875,y:110+i*100,health:specs.maxHealth,cooldown:0,angle:team===0?0:Math.PI,behaviour:{...behaviour},targetId:null,wanderX:ARENA.width/2,wanderY:ARENA.height/2,wanderStep:0});
     });
   }
   return {bots,shots:[],winner:null,finished:false,elapsed:0};
@@ -43,11 +43,22 @@ export function step(match:Match,dt:number):void {
     const target=visible[0];
     bot.targetId=target?.id??null;
     if(!target) {
-      // Basic searching: move toward centre, but never follow invisible opponents.
-      const dx=ARENA.width/2-bot.x, dy=ARENA.height/2-bot.y;
-      const len=Math.hypot(dx,dy)||1;
-      bot.x+=dx/len*spec.speed*dt*.35;
-      bot.y+=dy/len*spec.speed*dt*.35;
+      // Patrol a sequence of waypoints instead of freezing at the centre.
+      // Waypoints depend only on this bot's ID and patrol step, never on unseen enemies.
+      const dx=bot.wanderX-bot.x,dy=bot.wanderY-bot.y;
+      if(Math.hypot(dx,dy)<18) {
+        bot.wanderStep++;
+        const seed=bot.id*23.17+bot.wanderStep*31.71;
+        const margin=ARENA.padding+spec.radius+24;
+        bot.wanderX=margin+(ARENA.width-2*margin)*(.5+.5*Math.sin(seed*1.37));
+        bot.wanderY=margin+(ARENA.height-2*margin)*(.5+.5*Math.sin(seed*2.11));
+      }
+      const vx=bot.wanderX-bot.x,vy=bot.wanderY-bot.y;
+      const len=Math.hypot(vx,vy)||1;
+      const patrolSpeed=spec.speed*(.25+.45*bot.behaviour.mobility/100);
+      bot.x+=vx/len*patrolSpeed*dt;
+      bot.y+=vy/len*patrolSpeed*dt;
+      bot.angle=Math.atan2(vy,vx);
       continue;
     }
     const dx=target.x-bot.x,dy=target.y-bot.y,d=Math.hypot(dx,dy)||1;
@@ -57,8 +68,16 @@ export function step(match:Match,dt:number):void {
     const retreat=healthFraction<.3&&bot.behaviour.caution>60;
     const movement=retreat?-1:(d>ideal?1:d<ideal*.65?-1:0);
     const urge=.4+bot.behaviour.aggression/100*.6;
-    bot.x+=dx/d*spec.speed*dt*movement*urge;
-    bot.y+=dy/d*spec.speed*dt*movement*urge;
+    // Even cautious bots circle or reposition, rather than becoming stationary turrets.
+    // Strafe direction changes occasionally, with per-bot offsets to avoid lockstep.
+    const strafeDirection=Math.floor(match.elapsed/5+bot.id*0.7)%2===0?1:-1;
+    const strafeSpeed=spec.speed*(.12+.43*bot.behaviour.mobility/100);
+    const vx=dx/d*spec.speed*movement*urge + -dy/d*strafeDirection*strafeSpeed;
+    const vy=dy/d*spec.speed*movement*urge + dx/d*strafeDirection*strafeSpeed;
+    const moveLength=Math.hypot(vx,vy);
+    const scale=moveLength>spec.speed?spec.speed/moveLength:1;
+    bot.x+=vx*scale*dt;
+    bot.y+=vy*scale*dt;
     if(d<=spec.attackRange&&bot.cooldown===0) {
       target.health=Math.max(0,target.health-spec.damage);
       bot.cooldown=1/spec.shotsPerSecond;
