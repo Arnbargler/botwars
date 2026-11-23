@@ -22,7 +22,7 @@ A bot cannot acquire the current position of allies or enemies outside its own r
 
 ## Individual behaviour sliders (initial candidates)
 - Timid ↔ Aggressive
-- Lone wolf ↔ Helps teammates
+- Avoids teammates ↔ Stays with teammates
 - Reckless ↔ Cautious
 - Close combat ↔ Keep distance
 - Prefer weakest ↔ Prefer strongest target
@@ -51,7 +51,7 @@ Sliders affect decisions, not immutable physical specifications. Bots have no na
 - New robots receive independent default settings; deleting a robot preserves every other robot's settings
 - Press Ready for automatic combat against a preset opponent team
 - Bots wander when no enemy is detected and strafe during combat
-- Teamwork slider now biases target selection toward **enemies detected by the bot's own radar** that threaten nearby visible allies; ordinary bots do not share radar contacts
+- Teamwork slider controls **movement around detected friendly bots**: at 0 it steers away, at 50 it is neutral, and at 100 it attempts to remain comfortably within radar distance of the nearest detected ally. It applies while patrolling and fighting, and does not alter enemy targeting. Ordinary bots never share radar contacts
 - During battle, click a robot to inspect its health, action, current target, radar contacts, weapon range, cooldown, counters and behaviour settings
 - After a match, view measured results for deployment, survivors, shots/hits, damage and kills; instant-hit weapons currently have no misses
 - Spy radar sharing is planned, not yet implemented
