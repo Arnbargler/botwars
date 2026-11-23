@@ -51,7 +51,7 @@ function setup():void {
       input.oninput=()=>{
         const key=input.dataset.setting as keyof Behaviour;
         selected.behaviour[key]=Number(input.value);
-        input.nextElementSibling!.textContent=input.value;
+        input.parentElement!.querySelector('output')!.textContent=input.value;
       };
     });
   }
