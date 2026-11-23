@@ -24,6 +24,43 @@ export function createMatch(team0:RosterEntry[],team1:RosterEntry[]):Match {
 }
 const clamp=(n:number,lo:number,hi:number)=>Math.max(lo,Math.min(hi,n));
 const dist=(a:Bot,b:Bot)=>Math.hypot(a.x-b.x,a.y-b.y);
+
+// Movement-only teamwork: use this robot's own radar to detect living allies.
+// A high setting maintains formation with the nearest detected friend;
+// a low setting steers AWAY from them. Midpoint 50 is neutral.
+// Nothing here adds contacts to the enemy-target list or shares radar data.
+function teamSteering(bot:Bot,bots:Bot[],radar:number):{x:number;y:number} {
+  const preference=(bot.behaviour.teamwork-50)/50;
+  if(Math.abs(preference)<0.001)return {x:0,y:0};
+  const allies=bots.filter(other=>
+    other.id!==bot.id&&other.team===bot.team&&other.health>0&&dist(bot,other)<=radar
+  ).sort((a,b)=>dist(bot,a)-dist(bot,b));
+  const ally=allies[0];
+  if(!ally)return {x:0,y:0};
+  const dx=ally.x-bot.x,dy=ally.y-bot.y,d=Math.hypot(dx,dy);
+  // Close-quarters separation avoids bots stacking on the same coordinates.
+  if(d<1)return {x:0,y:0};
+  if(preference>0){
+    // Keep some margin inside radar, so a friend doesn't immediately disappear.
+    const comfortable=radar*0.58;
+    const urgency=clamp((d-comfortable)/(radar-comfortable),0,1);
+    return {x:dx/d*preference*urgency,y:dy/d*preference*urgency};
+  }
+  // Lone wolves turn away from any detected ally; strongest when near them.
+  const urgency=0.30+0.70*(1-d/radar);
+  return {x:-dx/d*(-preference)*urgency,y:-dy/d*(-preference)*urgency};
+}
+function moveWithTeam(bot:Bot,bots:Bot[],spec:Specs,dx:number,dy:number,dt:number):void {
+  const team=teamSteering(bot,bots,spec.radarRange);
+  // At the extremes, social preference has enough authority to redirect movement.
+  const x=dx+team.x*spec.speed*1.4;
+  const y=dy+team.y*spec.speed*1.4;
+  const length=Math.hypot(x,y);
+  const scale=length>spec.speed?spec.speed/length:1;
+  bot.x+=x*scale*dt;
+  bot.y+=y*scale*dt;
+  if(length>0.01)bot.angle=Math.atan2(y,x);
+}
 export function step(match:Match,dt:number):void {
   if(match.finished)return;
   match.elapsed+=dt;
@@ -36,30 +73,13 @@ export function step(match:Match,dt:number):void {
     // Only the bot's OWN radar contacts are eligible targets.
     const visible=match.bots.filter(other=>other.team!==bot.team&&other.health>0&&dist(bot,other)<=spec.radarRange);
     bot.visibleEnemies=visible.length;
-    const teamwork=bot.behaviour.teamwork/100;
     const score=(enemy:Bot)=>{
       const d=dist(bot,enemy);
       const healthFrac=enemy.health/CLASSES[enemy.kind].maxHealth;
       const targetBias=bot.behaviour.target/100;
-      // An ally's danger is observable locally, but never grants its radar contacts.
-      // A threatened ally is one with a visible enemy in close proximity.
-      let help=0;
-      if(teamwork>0){
-        for(const ally of match.bots){
-          if(ally===bot||ally.team!==bot.team||ally.health<=0||dist(bot,ally)>spec.radarRange)continue;
-          const dangerRange=CLASSES[enemy.kind].attackRange*1.1;
-          const separation=dist(ally,enemy);
-          if(separation<dangerRange){
-            const allyHealth=ally.health/CLASSES[ally.kind].maxHealth;
-            const urgency=(1-separation/dangerRange)*.45 + (1-allyHealth)*.55;
-            help=Math.max(help,urgency);
-          }
-        }
-      }
-      // Retain a modest current-target bonus to reduce rapid target oscillation.
-      const persistence=bot.targetId===enemy.id?.20:0;
-      return (1-d/spec.radarRange)*2+(1-targetBias)*(1-healthFrac)+targetBias*healthFrac
-        +teamwork*help*2.0+persistence;
+      const persistence=bot.targetId===enemy.id?0.20:0;
+      // Teamwork no longer affects targeting; it controls spacing and steering.
+      return (1-d/spec.radarRange)*2+(1-targetBias)*(1-healthFrac)+targetBias*healthFrac+persistence;
     };
     visible.sort((a,b)=>score(b)-score(a));
     const target=visible[0];
@@ -79,9 +99,7 @@ export function step(match:Match,dt:number):void {
       const vx=bot.wanderX-bot.x,vy=bot.wanderY-bot.y;
       const len=Math.hypot(vx,vy)||1;
       const patrolSpeed=spec.speed*(.25+.45*bot.behaviour.mobility/100);
-      bot.x+=vx/len*patrolSpeed*dt;
-      bot.y+=vy/len*patrolSpeed*dt;
-      bot.angle=Math.atan2(vy,vx);
+      moveWithTeam(bot,match.bots,spec,vx/len*patrolSpeed,vy/len*patrolSpeed,dt);
       continue;
     }
     const dx=target.x-bot.x,dy=target.y-bot.y,d=Math.hypot(dx,dy)||1;
@@ -98,10 +116,7 @@ export function step(match:Match,dt:number):void {
     const strafeSpeed=spec.speed*(.12+.43*bot.behaviour.mobility/100);
     const vx=dx/d*spec.speed*movement*urge + -dy/d*strafeDirection*strafeSpeed;
     const vy=dy/d*spec.speed*movement*urge + dx/d*strafeDirection*strafeSpeed;
-    const moveLength=Math.hypot(vx,vy);
-    const scale=moveLength>spec.speed?spec.speed/moveLength:1;
-    bot.x+=vx*scale*dt;
-    bot.y+=vy*scale*dt;
+    moveWithTeam(bot,match.bots,spec,vx,vy,dt);
     if(d<=spec.attackRange&&bot.cooldown===0) {
       const dealt=Math.min(target.health,spec.damage);
       target.health-=dealt;
