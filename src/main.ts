@@ -18,7 +18,7 @@ let currentMatch:Match|null=null;
 function rosterCost():number {return roster.reduce((sum,bot)=>sum+CLASSES[bot.kind].cost,0);}
 const sliderLabels: {key:keyof Behaviour;title:string;low:string;high:string}[]=[
   {key:'aggression',title:'Aggression',low:'Timid',high:'Aggressive'},
-  {key:'teamwork',title:'Teamwork',low:'Lone wolf',high:'Helps teammates'},
+  {key:'teamwork',title:'Teamwork',low:'Avoids teammates',high:'Stays with teammates'},
   {key:'caution',title:'Self-preservation',low:'Reckless',high:'Cautious'},
   {key:'distance',title:'Engagement',low:'Close combat',high:'Keep distance'},
   {key:'target',title:'Target preference',low:'Weakest',high:'Strongest'},
