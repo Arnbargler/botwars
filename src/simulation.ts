@@ -8,7 +8,7 @@ export const CLASSES: Record<ClassId, Specs> = {
 export interface Behaviour { aggression:number; teamwork:number; caution:number; distance:number; target:number; mobility:number; }
 export const DEFAULT_BEHAVIOUR:Behaviour = { aggression:70, teamwork:50, caution:45, distance:50, target:40, mobility:60 };
 export interface RosterEntry { kind:ClassId; behaviour:Behaviour; }
-export interface Bot { id:number; team:Team; kind:ClassId; x:number; y:number; health:number; cooldown:number; angle:number; behaviour:Behaviour; targetId:number|null; wanderX:number; wanderY:number; wanderStep:number; }
+export interface Bot { id:number; team:Team; kind:ClassId; x:number; y:number; health:number; cooldown:number; angle:number; behaviour:Behaviour; targetId:number|null; wanderX:number; wanderY:number; wanderStep:number; action:string; visibleEnemies:number; shotsFired:number; hits:number; damageDealt:number; damageTaken:number; kills:number; }
 export interface Shot { from:number; to:number; x:number; y:number; damage:number; }
 export interface Match { bots:Bot[]; shots:Shot[]; winner:Team|null; finished:boolean; elapsed:number; }
 export const ARENA={ width:960,height:600,padding:32 };
@@ -17,7 +17,7 @@ export function createMatch(team0:RosterEntry[],team1:RosterEntry[]):Match {
   for (const [team, roster] of [[0,team0],[1,team1]] as const) {
     roster.forEach((entry,i)=>{
       const specs=CLASSES[entry.kind];
-      bots.push({id:bots.length,team,kind:entry.kind,x:team===0?85:875,y:110+i*100,health:specs.maxHealth,cooldown:0,angle:team===0?0:Math.PI,behaviour:{...entry.behaviour},targetId:null,wanderX:ARENA.width/2,wanderY:ARENA.height/2,wanderStep:0});
+      bots.push({id:bots.length,team,kind:entry.kind,x:team===0?85:875,y:110+i*100,health:specs.maxHealth,cooldown:0,angle:team===0?0:Math.PI,behaviour:{...entry.behaviour},targetId:null,wanderX:ARENA.width/2,wanderY:ARENA.height/2,wanderStep:0,action:'Searching',visibleEnemies:0,shotsFired:0,hits:0,damageDealt:0,damageTaken:0,kills:0});
     });
   }
   return {bots,shots:[],winner:null,finished:false,elapsed:0};
@@ -33,17 +33,39 @@ export function step(match:Match,dt:number):void {
     if(bot.health<=0)continue;
     const spec=CLASSES[bot.kind];
     bot.cooldown=Math.max(0,bot.cooldown-dt);
+    // Only the bot's OWN radar contacts are eligible targets.
     const visible=match.bots.filter(other=>other.team!==bot.team&&other.health>0&&dist(bot,other)<=spec.radarRange);
+    bot.visibleEnemies=visible.length;
+    const teamwork=bot.behaviour.teamwork/100;
     const score=(enemy:Bot)=>{
       const d=dist(bot,enemy);
       const healthFrac=enemy.health/CLASSES[enemy.kind].maxHealth;
       const targetBias=bot.behaviour.target/100;
-      return (1-d/spec.radarRange)*2 + (1-targetBias)*(1-healthFrac) + targetBias*healthFrac;
+      // An ally's danger is observable locally, but never grants its radar contacts.
+      // A threatened ally is one with a visible enemy in close proximity.
+      let help=0;
+      if(teamwork>0){
+        for(const ally of match.bots){
+          if(ally===bot||ally.team!==bot.team||ally.health<=0||dist(bot,ally)>spec.radarRange)continue;
+          const dangerRange=CLASSES[enemy.kind].attackRange*1.1;
+          const separation=dist(ally,enemy);
+          if(separation<dangerRange){
+            const allyHealth=ally.health/CLASSES[ally.kind].maxHealth;
+            const urgency=(1-separation/dangerRange)*.45 + (1-allyHealth)*.55;
+            help=Math.max(help,urgency);
+          }
+        }
+      }
+      // Retain a modest current-target bonus to reduce rapid target oscillation.
+      const persistence=bot.targetId===enemy.id?.20:0;
+      return (1-d/spec.radarRange)*2+(1-targetBias)*(1-healthFrac)+targetBias*healthFrac
+        +teamwork*help*2.0+persistence;
     };
     visible.sort((a,b)=>score(b)-score(a));
     const target=visible[0];
     bot.targetId=target?.id??null;
     if(!target) {
+      bot.action='Patrolling — no radar contact';
       // Patrol a sequence of waypoints instead of freezing at the centre.
       // Waypoints depend only on this bot's ID and patrol step, never on unseen enemies.
       const dx=bot.wanderX-bot.x,dy=bot.wanderY-bot.y;
@@ -67,6 +89,7 @@ export function step(match:Match,dt:number):void {
     const ideal=spec.attackRange*(.45+bot.behaviour.distance/100*.48);
     const healthFraction=bot.health/spec.maxHealth;
     const retreat=healthFraction<.3&&bot.behaviour.caution>60;
+    bot.action=retreat?'Retreating from enemy #'+(target.id+1):d<=spec.attackRange?'Attacking enemy #'+(target.id+1):'Approaching enemy #'+(target.id+1);
     const movement=retreat?-1:(d>ideal?1:d<ideal*.65?-1:0);
     const urge=.4+bot.behaviour.aggression/100*.6;
     // Even cautious bots circle or reposition, rather than becoming stationary turrets.
@@ -80,7 +103,13 @@ export function step(match:Match,dt:number):void {
     bot.x+=vx*scale*dt;
     bot.y+=vy*scale*dt;
     if(d<=spec.attackRange&&bot.cooldown===0) {
-      target.health=Math.max(0,target.health-spec.damage);
+      const dealt=Math.min(target.health,spec.damage);
+      target.health-=dealt;
+      bot.shotsFired++;
+      bot.hits++;
+      bot.damageDealt+=dealt;
+      target.damageTaken+=dealt;
+      if(target.health===0){bot.kills++;target.action='Destroyed';target.targetId=null;target.visibleEnemies=0;}
       bot.cooldown=1/spec.shotsPerSecond;
       match.shots.push({from:bot.id,to:target.id,x:target.x,y:target.y,damage:spec.damage});
     }
