@@ -73,3 +73,27 @@ h1{font-size:27px;letter-spacing:3px;margin:0;color:#b4dcff;text-shadow:0 0 15px
 @media(max-width:1190px){.setup-grid{grid-template-columns:minmax(210px,1fr) minmax(450px,2.3fr)}.right-stack{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;align-items:start}.right-stack .ready-button{grid-column:2}.preview-panel{grid-row:span 2}.arena-preview{aspect-ratio:1.7/1}.version{display:none}}
 @media(max-width:780px){#app{padding:0 10px 20px}.setup-header{flex-wrap:wrap}.steps{justify-content:flex-start}.setup-grid{grid-template-columns:1fr}.right-stack{grid-column:auto;display:flex}.arena-preview{aspect-ratio:1.7/1}.roster-panel{min-height:0}.behaviour-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:470px){.brand{min-width:0}.steps{gap:4px}.step{padding:7px;font-size:11px}.step b{width:19px;height:19px}.behaviour-grid{grid-template-columns:1fr}.roster-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.roster-footer{flex-direction:column;align-items:stretch}.slider-controls{gap:5px}}
+
+/* Battle viewer: inspector and actual post-match telemetry */
+.battle-header{padding:19px 4px 12px}
+.battle-header h1 span{font-size:14px;color:#89a9c5;letter-spacing:1px}
+.battle-layout{display:grid;grid-template-columns:minmax(0,960px) minmax(250px,330px);gap:16px;align-items:start;justify-content:center}
+.battle-layout #game{margin:0;min-width:0}
+.inspector{padding:17px;min-height:300px}
+.inspector h2,.results-panel h2{margin:0 0 15px;color:#9fdbfa;font-size:18px}
+.inspector h2 small{font-size:11px;color:#91abc2}
+.inspect-health{height:10px;background:#33435c;border-radius:9px;overflow:hidden}
+.inspect-health>div{height:100%;background:linear-gradient(90deg,#20a0bd,#51d5c0);transition:width .12s}
+.inspect-hp{margin:8px 0 18px;color:#bdd1e3;font-size:12px}
+.inspect-rows{display:grid;gap:0}
+.inspect-rows>div{display:flex;align-items:baseline;justify-content:space-between;gap:12px;border-bottom:1px solid #2a3b54;padding:8px 0;font-size:12px}
+.inspect-rows span{color:#91aac1}.inspect-rows strong{text-align:right;color:#e0efff;font-size:12px;font-weight:600}
+.inspector h3{margin:20px 0 8px;font-size:13px;color:#9bd8f6}
+.results-panel{display:none;padding:20px;margin:18px 0 25px}
+.results-panel[data-shown="yes"]{display:block}
+.results-panel p{color:#a7c2d8;font-size:13px}
+.results-panel table{width:100%;border-collapse:collapse;text-align:right;margin:15px 0}
+.results-panel table th:first-child{text-align:left}
+.results-panel th,.results-panel td{border-bottom:1px solid #2d455f;padding:10px;font-size:13px}
+.results-panel thead th{color:#9ddcfb}
+@media(max-width:1080px){.battle-layout{grid-template-columns:1fr}.inspector{min-height:0}}
