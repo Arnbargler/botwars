@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { ARENA, CLASSES, DEFAULT_BEHAVIOUR, createMatch, step, type Behaviour, type ClassId, type Match } from './simulation';
+import { ARENA, CLASSES, DEFAULT_BEHAVIOUR, createMatch, step, type Behaviour, type Bot, type ClassId, type Match } from './simulation';
 import './style.css';
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
@@ -207,7 +207,7 @@ class BattleScene extends Phaser.Scene {
     this.add.text(24,12,'BOTWARS · BLUE vs RED', {fontFamily:'monospace',fontSize:'19px',color:'#d9edff'});
     this.result=this.add.text(480,300,'',{fontFamily:'monospace',fontSize:'32px',color:'#ffffff',align:'center'}).setOrigin(.5).setDepth(5);
     this.input.on('pointerdown',(pointer:Phaser.Input.Pointer)=>{
-      let nearest:typeof this.match.bots[number]|undefined;
+      let nearest:Bot|undefined;
       let best=Number.POSITIVE_INFINITY;
       for(const bot of this.match.bots){
         const distance=Math.hypot(pointer.worldX-bot.x,pointer.worldY-bot.y);
@@ -232,7 +232,7 @@ class BattleScene extends Phaser.Scene {
       if(bot.health<=0)continue;
       const spec=CLASSES[bot.kind],color=bot.team===0?0x42c6ee:0xff657e;
       const selected=bot.id===battleSelectedId;
-      g.lineStyle(selected?2:1,selected?0x9ff4ff:bot.team===0?0x347493:0x8c4052,selected?.9:.15);
+      g.lineStyle(selected?2:1,selected?0x9ff4ff:bot.team===0?0x347493:0x8c4052,selected ? 0.9 : 0.15);
       g.strokeCircle(bot.x,bot.y,spec.radarRange);
       if(selected){
         g.lineStyle(2,0xffe69a,.85);g.strokeCircle(bot.x,bot.y,spec.attackRange);
