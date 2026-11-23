@@ -44,6 +44,15 @@ Sliders affect decisions, not immutable physical specifications. Bots have no na
 - Separate roster/configuration, simulation, rendering and eventual networking layers
 - Do not add multiplayer networking prematurely
 
+## Current prototype (v0.3)
+- Build a budget-limited roster of Scouts and Goliaths
+- Click a robot in the roster to adjust **its own** six behaviour sliders
+- New robots receive independent default settings; deleting a robot preserves every other robot's settings
+- Press Ready for automatic combat against a preset opponent team
+- Bots wander when no enemy is detected and strafe during combat
+- Teamwork slider is visible but not yet implemented in the AI; spy radar sharing is planned, not yet implemented
+- Configuration lives in browser memory for now; reloading resets it
+
 ## Development roadmap
 1. Scaffold application and display an arena in the browser.
 2. Define immutable classes and configurable behaviours.
@@ -54,4 +63,4 @@ Sliders affect decisions, not immutable physical specifications. Bots have no na
 7. Add authoritative multiplayer server and spectator syncing.
 
 ## Local setup
-Use Node.js LTS (Node 18 is too old for current Vite). Clone this repository on Linux Mint. Further setup commands will be added with the first working prototype.
+Use Node.js LTS (Node 18 is too old for current Vite). Clone this repository on Linux Mint. Run `npm install` and `npm run dev`, then open the Vite URL (usually http://localhost:5173).
