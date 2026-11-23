@@ -44,14 +44,16 @@ Sliders affect decisions, not immutable physical specifications. Bots have no na
 - Separate roster/configuration, simulation, rendering and eventual networking layers
 - Do not add multiplayer networking prematurely
 
-## Current prototype (v0.3)
+## Current prototype (v0.4)
 - Build a budget-limited roster of Scouts and Goliaths
-- Click a robot in the roster to adjust **its own** six behaviour sliders
+- Mockup-inspired three-column setup interface: available classes, individual roster cards and arena preview/match summary
+- Click a roster card to expand and adjust **its own** six behaviour sliders; edits persist as you switch cards
 - New robots receive independent default settings; deleting a robot preserves every other robot's settings
 - Press Ready for automatic combat against a preset opponent team
 - Bots wander when no enemy is detected and strafe during combat
 - Teamwork slider is visible but not yet implemented in the AI; spy radar sharing is planned, not yet implemented
 - Configuration lives in browser memory for now; reloading resets it
+- Arena preview and match settings are display-only for now; the existing battle renderer and simulation are unchanged
 
 ## Development roadmap
 1. Scaffold application and display an arena in the browser.
